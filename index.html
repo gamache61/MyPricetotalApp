@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MyPricescanApp</title>
+    <link rel="manifest" href="manifest.json">
+    <style>
+        body { margin: 0; font-family: sans-serif; background: #000; color: white; overflow: hidden; display: flex; flex-direction: column; height: 100vh; }
+        #api-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.98); z-index: 1000; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 20px; box-sizing: border-box; text-align: center; }
+        #api-input { width: 90%; padding: 15px; margin: 15px 0; border-radius: 8px; border: 2px solid #00ff00; background: #222; color: white; font-size: 1rem; }
+        .btn-green { background: #00ff00; color: black; padding: 15px 30px; border: none; border-radius: 8px; font-weight: bold; width: 90%; margin-top: 10px; }
+        #camera-container { position: relative; height: 35vh; background: #111; border-bottom: 2px solid #333; overflow: hidden; }
+        video { width: 100%; height: 100%; object-fit: cover; }
+        #overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; pointer-events: none; }
+        #viewfinder { width: 250px; height: 100px; border: 4px solid #00ff00; border-radius: 12px; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6); }
+        #dashboard { flex-grow: 1; display: flex; flex-direction: column; background: #1a1a1a; padding: 10px; align-items: center; justify-content: space-around; }
+        #debug-canvas { width: 250px; height: 80px; border: 2px solid #ff0000; background: white; object-fit: contain; }
+        #auto-btn { width: 95%; height: 50px; font-weight: bold; border-radius: 10px; border: 2px solid #00ff00; background: transparent; color: #00ff00; cursor: pointer; }
+        #auto-btn.active { background: #00ff00; color: black; }
+        #snap-btn { width: 95%; height: 70px; font-size: 1.8rem; font-weight: bold; background: #00ff00; border: none; border-radius: 15px; color: black; }
+        .total-display { font-size: 5rem; font-weight: 900; color: #00ff00; line-height: 1; }
+        #status { color: #ffcc00; font-weight: bold; font-size: 0.9rem; text-align: center; height: 1.2em; }
+        .row { width: 95%; display: flex; gap: 10px; }
+        .btn-small { flex: 1; padding: 12px; border-radius: 10px; border: 1px solid #444; background: #222; color: white; font-size: 0.8rem; }
+    </style>
+</head>
+<body>
+    <div id="api-overlay">
+        <h2>MyPricescanApp</h2>
+        <p style="color: #888; font-size: 0.8rem;">Update: Now using Llama 4 Scout</p>
+        <input type="password" id="api-input" placeholder="gsk_xxxxxxxxxxxx">
+        <button class="btn-green" onclick="testAndSave()">ACTIVATE SCANNER</button>
+        <p id="test-msg" style="color: #ff8888; margin-top: 10px; font-size: 0.8rem;"></p>
+    </div>
+    <div id="camera-container">
+        <video id="video" autoplay playsinline muted></video>
+        <div id="overlay"><div id="viewfinder"></div></div>
+    </div>
+    <div id="dashboard">
+        <div id="status">READY</div>
+        <canvas id="debug-canvas"></canvas>
+        <button id="auto-btn" onclick="toggleAutoScan()">AUTO-SCAN: OFF</button>
+        <button id="snap-btn" onclick="performScan(false)">SNAP PRICE</button>
+        <div class="row">
+            <button class="btn-small" onclick="undoLast()">UNDO</button>
+            <button class="btn-small" onclick="clearKey()" style="color: #ff8888;">CLEAR KEY</button>
+            <button class="btn-small" onclick="resetTotal()">CLEAR ALL</button>
+        </div>
+        <div class="total-display">$<span id="total">0.00</span></div>
+    </div>
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('debug-canvas');
+        const totalDisp = document.getElementById('total');
+        const status = document.getElementById('status');
+        const autoBtn = document.getElementById('auto-btn');
+        const apiOverlay = document.getElementById('api-overlay');
+        const apiInput = document.getElementById('api-input');
+        const testMsg = document.getElementById('test-msg');
+        let currentTotal = 0, scanHistory = [], userApiKey = "";
+        let isAutoScanning = false, lastFingerprint = null;
+
+        // UPDATED TO LLAMA 4 SCOUT (LATEST SUPPORTED VISION MODEL)
+        const MODEL_NAME = "meta-llama/llama-4-scout-17b-16e-instruct";
+
+        window.onload = () => {
+            const savedKey = localStorage.getItem('groq_key');
+            if (savedKey) { userApiKey = savedKey; apiOverlay.style.display = 'none'; initCamera(); }
+        };
+
+        async function testAndSave() {
+            const key = apiInput.value.trim();
+            if (!key.startsWith('gsk_')) { testMsg.innerText = "Check key format"; return; }
+            testMsg.style.color = "#00ff00";
+            testMsg.innerText = "Verifying Llama 4 Access...";
+            try {
+                const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
+                    body: JSON.stringify({ model: MODEL_NAME, messages: [{ role: "user", content: "hi" }], max_tokens: 1 })
+                });
+                if (res.ok) { localStorage.setItem('groq_key', key); userApiKey = key; apiOverlay.style.display = 'none'; initCamera(); }
+                else { testMsg.innerText = "Access Denied to Llama 4"; }
+            } catch (e) { testMsg.innerText = "Network Error"; }
+        }
+
+        async function initCamera() {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+            video.srcObject = stream;
+        }
+
+        function toggleAutoScan() {
+            isAutoScanning = !isAutoScanning;
+            autoBtn.innerText = isAutoScanning ? "AUTO-SCAN: ON" : "AUTO-SCAN: OFF";
+            autoBtn.classList.toggle('active', isAutoScanning);
+            if (isAutoScanning) autoScanLoop();
+        }
+
+        async function autoScanLoop() {
+            if (!isAutoScanning) return;
+            await performScan(true);
+            setTimeout(autoScanLoop, 3000); 
+        }
+
+        function getFingerprint(ctx, w, h) {
+            const d = ctx.getImageData(0, 0, w, h).data;
+            let sum = 0;
+            for (let i = 0; i < d.length; i += 40) { sum += d[i] + d[i+1] + d[i+2]; }
+            return sum;
+        }
+
+        async function performScan(isAuto) {
+            const ctx = canvas.getContext('2d');
+            const vW = video.videoWidth, vH = video.videoHeight;
+            const cropW = vW * 0.5, cropH = cropW * (100 / 250);
+            const sX = (vW - cropW) / 2, sY = (vH - cropH) / 2;
+            canvas.width = cropW; canvas.height = cropH;
+            ctx.drawImage(video, sX, sY, cropW, cropH, 0, 0, cropW, cropH);
+            const fp = getFingerprint(ctx, cropW, cropH);
+            if (isAuto && lastFingerprint && Math.abs(fp - lastFingerprint) < (lastFingerprint * 0.05)) {
+                status.innerText = "SAME ITEM - MOVE CAMERA"; return;
+            }
+            status.innerText = "THINKING...";
+            const img = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
+            try {
+                const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${userApiKey}` },
+                    body: JSON.stringify({
+                        model: MODEL_NAME,
+                        messages: [{
+                            role: "user",
+                            content: [
+                                { type: "text", text: "Numerical price only." },
+                                { type: "image_url", image_url: { url: `data:image/jpeg;base64,${img}` } }
+                            ]
+                        }]
+                    })
+                });
+                const d = await res.json();
+                const p = parseFloat(d.choices[0].message.content.trim().replace(/[^0-9.]/g, ''));
+                if (!isNaN(p) && p > 0) {
+                    currentTotal += p; scanHistory.push(p); lastFingerprint = fp;
+                    totalDisp.innerText = currentTotal.toFixed(2);
+                    status.innerText = `ADDED: $${p.toFixed(2)}`;
+                    if (navigator.vibrate) navigator.vibrate(100);
+                } else { status.innerText = "WAITING..."; }
+            } catch (e) { status.innerText = "API ERROR"; }
+        }
+
+        function undoLast() {
+            if (scanHistory.length > 0) {
+                currentTotal -= scanHistory.pop(); lastFingerprint = null;
+                totalDisp.innerText = Math.max(0, currentTotal).toFixed(2);
+                status.innerText = "UNDONE";
+            }
+        }
+        function clearKey() { localStorage.removeItem('groq_key'); location.reload(); }
+        function resetTotal() { if(confirm("Clear?")) location.reload(); }
+        if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
+    </script>
+</body>
+</html>
