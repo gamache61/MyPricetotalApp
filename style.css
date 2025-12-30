@@ -1,0 +1,42 @@
+/* General Layout */
+body { margin: 0; font-family: sans-serif; background: #000; color: white; }
+.app-wrapper { display: flex; flex-direction: column; height: 100vh; }
+
+/* Scanner Styling */
+.scanner-container { flex: 1; position: relative; overflow: hidden; display: flex; justify-content: center; alignItems: center; }
+#video { width: 100%; height: 100%; object-fit: cover; }
+
+/* The Frame that changes color */
+.scanner-frame {
+    position: absolute;
+    width: 260px;
+    height: 160px;
+    border: 2px solid rgba(255,255,255,0.5);
+    border-radius: 15px;
+    transition: all 0.3s ease;
+}
+
+/* SUCCESS FLASH CLASS */
+.scanner-frame.scanning-success {
+    border-color: #4CAF50;
+    border-width: 5px;
+    box-shadow: 0 0 20px rgba(74, 175, 80, 0.6);
+}
+
+/* Clear Button */
+#clear-btn {
+    background: #ff3b30;
+    color: white;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 5px;
+    font-weight: bold;
+}
+.hidden { display: none; }
+
+/* List Styling */
+.history-container { flex: 1; background: #1a1a1a; padding: 20px; border-top-left-radius: 20px; border-top-right-radius: 20px; }
+.header { display: flex; justify-content: space-between; align-items: center; }
+ul { list-style: none; padding: 0; }
+li { padding: 10px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; }
+.code { color: #4CAF50; font-weight: bold; }
